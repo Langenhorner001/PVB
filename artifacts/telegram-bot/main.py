@@ -12,10 +12,10 @@ from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN
 from db import init_db
-from middlewares.auth import BanCheckMiddleware
-from middlewares.throttle import ThrottleMiddleware
+from auth_middleware import BanCheckMiddleware
+from throttle_middleware import ThrottleMiddleware
 
-from handlers import start, order, balance, history, referral, guide, contact, admin, topup, system
+import start, order, balance, history, referral, guide, contact, admin, topup, system
 
 logging.basicConfig(
     level=logging.INFO,
