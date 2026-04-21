@@ -15,7 +15,7 @@ from db import init_db
 from middlewares.auth import BanCheckMiddleware
 from middlewares.throttle import ThrottleMiddleware
 
-from handlers import start, order, balance, history, referral, guide, contact, admin
+from handlers import start, order, balance, history, referral, guide, contact, admin, topup
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +43,7 @@ async def main():
 
     dp.include_router(start.router)
     dp.include_router(order.router)
+    dp.include_router(topup.router)
     dp.include_router(balance.router)
     dp.include_router(history.router)
     dp.include_router(referral.router)

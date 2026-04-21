@@ -4,10 +4,47 @@ def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🛒 Place Order"), KeyboardButton(text="💰 Balance")],
-            [KeyboardButton(text="🎁 Refer & Earn"), KeyboardButton(text="📋 History")],
-            [KeyboardButton(text="📞 Contact Support"), KeyboardButton(text="📖 Guide")],
+            [KeyboardButton(text="💳 Top-Up"), KeyboardButton(text="🎁 Refer & Earn")],
+            [KeyboardButton(text="📋 History"), KeyboardButton(text="📖 Guide")],
+            [KeyboardButton(text="📞 Contact Support")],
         ],
         resize_keyboard=True,
+    )
+
+
+def topup_amounts_kb(amounts):
+    rows = []
+    row = []
+    for amt in amounts:
+        row.append(InlineKeyboardButton(text=f"💰 {amt}", callback_data=f"topup_amt:{amt}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="✏️ Custom Amount", callback_data="topup_amt:custom")])
+    rows.append([InlineKeyboardButton(text="❌ Cancel", callback_data="topup_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def topup_method_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Easypaisa", callback_data="topup_method:easypaisa")],
+            [InlineKeyboardButton(text="📱 JazzCash", callback_data="topup_method:jazzcash")],
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="topup_cancel")],
+        ]
+    )
+
+
+def topup_admin_kb(request_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Approve", callback_data=f"topup_approve:{request_id}"),
+                InlineKeyboardButton(text="❌ Reject", callback_data=f"topup_reject:{request_id}"),
+            ]
+        ]
     )
 
 

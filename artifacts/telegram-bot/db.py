@@ -40,7 +40,87 @@ async def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(telegram_id)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS topup_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                amount INTEGER,
+                payment_method TEXT,
+                transaction_ref TEXT,
+                status TEXT DEFAULT 'pending',
+                admin_note TEXT,
+                created_at TEXT,
+                processed_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(telegram_id)
+            )
+        """)
         await db.commit()
+
+
+async def create_topup_request(user_id: int, amount: int, payment_method: str, transaction_ref: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """INSERT INTO topup_requests (user_id, amount, payment_method, transaction_ref, status, created_at)
+               VALUES (?, ?, ?, ?, 'pending', ?)""",
+            (user_id, amount, payment_method, transaction_ref, datetime.now().isoformat()),
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_topup_request(request_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM topup_requests WHERE id = ?", (request_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def update_topup_status(request_id: int, status: str, admin_note: str = None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE topup_requests SET status = ?, admin_note = ?, processed_at = ? WHERE id = ?",
+            (status, admin_note, datetime.now().isoformat(), request_id),
+        )
+        await db.commit()
+
+
+async def claim_topup_request(request_id: int, new_status: str, admin_note: str) -> bool:
+    """Atomically transition a topup_request from 'pending' to new_status.
+    Returns True only if this call was the one that performed the transition."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """UPDATE topup_requests
+               SET status = ?, admin_note = ?, processed_at = ?
+               WHERE id = ? AND status = 'pending'""",
+            (new_status, admin_note, datetime.now().isoformat(), request_id),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
+
+
+async def get_pending_topups(limit: int = 20):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM topup_requests WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def get_user_topups(user_id: int, limit: int = 10):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM topup_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
 
 
 async def get_user(telegram_id: int):
