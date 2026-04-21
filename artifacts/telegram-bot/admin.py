@@ -1,11 +1,19 @@
+import asyncio
+import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
 from db import get_stats, get_all_users, add_balance, deduct_balance, ban_user, get_user
 from keyboards import admin_menu, main_menu
+from helpers import escape_md
 from config import ADMIN_IDS
+
+logger = logging.getLogger(__name__)
+MAX_ADMIN_CREDIT = 1_000_000
+BROADCAST_DELAY = 0.05  # ~20 msgs/sec, well under Telegram's 30/sec global limit
 
 router = Router()
 
@@ -70,16 +78,39 @@ async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminState.broadcast_msg)
 async def do_broadcast(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
+    if not message.text:
+        await message.answer("⚠️ Broadcast must be a text message.", reply_markup=main_menu())
+        return
     users = await get_all_users()
+    body = message.text
     sent = 0
     failed = 0
+    blocked = 0
     for uid in users:
         try:
-            await bot.send_message(uid, f"📢 *Admin Message:*\n\n{message.text}", parse_mode="Markdown")
+            await bot.send_message(uid, f"📢 *Admin Message:*\n\n{body}", parse_mode="Markdown")
             sent += 1
-        except Exception:
+        except TelegramRetryAfter as e:
+            logger.warning("Broadcast flood-wait %ss for %s", e.retry_after, uid)
+            await asyncio.sleep(e.retry_after + 1)
+            try:
+                await bot.send_message(uid, f"📢 *Admin Message:*\n\n{body}", parse_mode="Markdown")
+                sent += 1
+            except Exception:
+                failed += 1
+        except TelegramForbiddenError:
+            blocked += 1
+        except (TelegramBadRequest, Exception) as e:
+            logger.warning("Broadcast failed for %s: %s", uid, e)
             failed += 1
-    await message.answer(f"✅ Broadcast complete!\n✅ Sent: {sent}\n❌ Failed: {failed}", reply_markup=main_menu())
+        await asyncio.sleep(BROADCAST_DELAY)
+    await message.answer(
+        f"✅ Broadcast complete!\n"
+        f"✅ Sent: {sent}\n"
+        f"🚫 Blocked bot: {blocked}\n"
+        f"❌ Failed: {failed}",
+        reply_markup=main_menu(),
+    )
 
 
 @router.callback_query(F.data == "admin_add_bal")
@@ -94,7 +125,7 @@ async def admin_add_bal_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.add_bal_id)
 async def admin_add_bal_id(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    if not message.text or not message.text.strip().isdigit():
         await message.answer("Please enter a valid numeric User ID:")
         return
     await state.update_data(target_id=int(message.text.strip()))
@@ -104,11 +135,14 @@ async def admin_add_bal_id(message: Message, state: FSMContext):
 
 @router.message(AdminState.add_bal_amount)
 async def admin_add_bal_amount(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    if not message.text or not message.text.strip().isdigit():
         await message.answer("Please enter a valid number:")
         return
-    data = await state.get_data()
     amount = int(message.text.strip())
+    if amount <= 0 or amount > MAX_ADMIN_CREDIT:
+        await message.answer(f"⚠️ Amount must be between 1 and {MAX_ADMIN_CREDIT}.")
+        return
+    data = await state.get_data()
     await state.clear()
     await add_balance(data["target_id"], amount, "admin_credit", f"Admin added {amount} credits")
     user = await get_user(data["target_id"])
@@ -133,7 +167,7 @@ async def admin_deduct_bal_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.deduct_bal_id)
 async def admin_deduct_bal_id(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    if not message.text or not message.text.strip().isdigit():
         await message.answer("Please enter a valid numeric User ID:")
         return
     await state.update_data(target_id=int(message.text.strip()))
@@ -143,11 +177,14 @@ async def admin_deduct_bal_id(message: Message, state: FSMContext):
 
 @router.message(AdminState.deduct_bal_amount)
 async def admin_deduct_bal_amount(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    if not message.text or not message.text.strip().isdigit():
         await message.answer("Please enter a valid number:")
         return
-    data = await state.get_data()
     amount = int(message.text.strip())
+    if amount <= 0 or amount > MAX_ADMIN_CREDIT:
+        await message.answer(f"⚠️ Amount must be between 1 and {MAX_ADMIN_CREDIT}.")
+        return
+    data = await state.get_data()
     await state.clear()
     success = await deduct_balance(data["target_id"], amount, "admin_deduct", f"Admin deducted {amount} credits")
     if success:
@@ -174,7 +211,7 @@ async def admin_ban_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.ban_id)
 async def admin_do_ban(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    if not message.text or not message.text.strip().isdigit():
         await message.answer("Please enter a valid numeric User ID:")
         return
     uid = int(message.text.strip())
@@ -195,7 +232,7 @@ async def admin_unban_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.unban_id)
 async def admin_do_unban(message: Message, state: FSMContext):
-    if not message.text.strip().isdigit():
+    if not message.text or not message.text.strip().isdigit():
         await message.answer("Please enter a valid numeric User ID:")
         return
     uid = int(message.text.strip())

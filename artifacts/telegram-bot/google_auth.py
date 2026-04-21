@@ -107,7 +107,10 @@ def _generate_partner_link(session: requests.Session) -> str:
         api_url = "https://one.google.com/u/0/partner-eft-onboard/generate"
         api_r = session.post(api_url, json={}, timeout=15)
         if api_r.status_code == 200:
-            data = api_r.json()
+            try:
+                data = api_r.json()
+            except (ValueError, json.JSONDecodeError):
+                return None
             token = data.get("token") or data.get("redemptionToken") or data.get("link", "").split("/")[-1]
             if token:
                 return f"https://one.google.com/partner-eft-onboard/{token}"

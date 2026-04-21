@@ -40,6 +40,8 @@ async def main():
 
     dp.message.middleware(BanCheckMiddleware())
     dp.message.middleware(ThrottleMiddleware())
+    dp.callback_query.middleware(BanCheckMiddleware())
+    dp.callback_query.middleware(ThrottleMiddleware())
 
     dp.include_router(start.router)
     dp.include_router(order.router)

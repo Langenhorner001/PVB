@@ -7,6 +7,16 @@ from config import REFERRAL_REWARD
 
 router = Router()
 
+_BOT_USERNAME: str | None = None
+
+
+async def _get_bot_username(bot: Bot) -> str:
+    global _BOT_USERNAME
+    if _BOT_USERNAME is None:
+        me = await bot.get_me()
+        _BOT_USERNAME = me.username
+    return _BOT_USERNAME
+
 
 @router.message(F.text == "🎁 Refer & Earn")
 async def show_referral(message: Message, bot: Bot):
@@ -16,8 +26,8 @@ async def show_referral(message: Message, bot: Bot):
         return
 
     ref_count = await get_referral_count(message.from_user.id)
-    bot_info = await bot.get_me()
-    ref_link = f"https://t.me/{bot_info.username}?start={user['referral_code']}"
+    bot_username = await _get_bot_username(bot)
+    ref_link = f"https://t.me/{bot_username}?start={user['referral_code']}"
 
     await message.answer(
         f"🎁 *Refer & Earn Program*\n\n"

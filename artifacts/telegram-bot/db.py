@@ -41,6 +41,14 @@ async def init_db():
             )
         """)
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS processed_payments (
+                charge_id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                amount INTEGER,
+                created_at TEXT
+            )
+        """)
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS topup_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -173,7 +181,23 @@ async def get_balance(telegram_id: int) -> int:
     return user["balance"] if user else 0
 
 
+async def record_payment(charge_id: str, user_id: int, amount: int) -> bool:
+    """Idempotency guard for Telegram successful_payment events.
+    Returns True if this charge_id was newly recorded, False if already processed."""
+    if not charge_id:
+        return True
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO processed_payments (charge_id, user_id, amount, created_at) VALUES (?, ?, ?, ?)",
+            (charge_id, user_id, amount, datetime.now().isoformat()),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
+
+
 async def add_balance(telegram_id: int, amount: int, tx_type: str, description: str):
+    if not isinstance(amount, int) or amount <= 0:
+        raise ValueError(f"add_balance: amount must be a positive integer, got {amount!r}")
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE users SET balance = balance + ? WHERE telegram_id = ?",

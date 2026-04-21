@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from db import get_stats, get_user
+from helpers import escape_md
 from config import ADMIN_IDS, BOT_NAME, ORDER_COST, REFERRAL_REWARD, SUPPORT_USERNAME
 
 router = Router()
@@ -156,8 +157,8 @@ async def cmd_sudo_users(message: Message, bot: Bot):
     for idx, admin_id in enumerate(ADMIN_IDS, start=1):
         try:
             chat = await bot.get_chat(admin_id)
-            name = chat.full_name or "Unknown"
-            uname = f"@{chat.username}" if chat.username else "—"
+            name = escape_md(chat.full_name or "Unknown")
+            uname = escape_md(f"@{chat.username}") if chat.username else "—"
             lines.append(f"{idx}. *{name}* ({uname}) — `{admin_id}`")
         except Exception:
             lines.append(f"{idx}. _Unknown_ — `{admin_id}`")

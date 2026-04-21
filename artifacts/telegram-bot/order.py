@@ -7,6 +7,7 @@ from aiogram.filters import Command
 from db import get_user, deduct_balance, add_balance, create_order, update_order
 from keyboards import main_menu, cancel_kb, confirm_order_kb
 from google_auth import google_login_and_get_link
+from helpers import escape_md
 from config import ORDER_COST, ADMIN_IDS
 
 router = Router()
@@ -65,6 +66,9 @@ async def cancel_order(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_gmail)
 async def got_gmail(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("⚠️ Please send your Gmail as text.")
+        return
     email = message.text.strip()
     if "@" not in email or "." not in email:
         await message.answer("⚠️ Invalid email. Please enter a valid Gmail address:")
@@ -81,7 +85,10 @@ async def got_gmail(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_password)
 async def got_password(message: Message, state: FSMContext):
-    password = message.text.strip()
+    if not message.text:
+        await message.answer("⚠️ Please send your password as text.")
+        return
+    password = message.text.strip()  # do-not-log: sensitive credential
     if len(password) < 6:
         await message.answer("⚠️ Password too short. Please enter your correct password:")
         return
@@ -98,7 +105,10 @@ async def got_password(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_2fa)
 async def got_2fa(message: Message, state: FSMContext):
-    secret = message.text.strip().replace(" ", "")
+    if not message.text:
+        await message.answer("⚠️ Please send your 2FA secret as text.")
+        return
+    secret = message.text.strip().replace(" ", "")  # do-not-log: sensitive credential
     if len(secret) < 8:
         await message.answer("⚠️ 2FA secret seems too short. Please check and re-enter:")
         return
@@ -168,9 +178,7 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
             await callback.answer()
             return
 
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
+    result = await asyncio.to_thread(
         google_login_and_get_link,
         data["gmail"],
         data["password"],
@@ -195,15 +203,17 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         user_obj = await get_user(user_id)
         updated_balance = user_obj["balance"] if user_obj else 0
 
+        safe_name = escape_md(callback.from_user.full_name)
+        safe_gmail = escape_md(data['gmail'])
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
-                    f"📦 *Order Update from Admin:*\n\n"
-                    f"User: {callback.from_user.full_name} (`{user_id}`)\n"
-                    f"Gmail: `{data['gmail']}`\n"
+                    f"📦 *Order Update:*\n\n"
+                    f"User: {safe_name} (`{user_id}`)\n"
+                    f"Gmail: `{safe_gmail}`\n"
                     f"Order #{order_id} — ✅ Success\n"
-                    f"tap {ORDER_COST}",
+                    f"Charged: `{0 if is_admin else ORDER_COST}` credits",
                     parse_mode="Markdown",
                 )
             except Exception:
@@ -227,15 +237,18 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         )
         await callback.message.answer(error_msg, parse_mode="Markdown", reply_markup=main_menu())
 
+        safe_name = escape_md(callback.from_user.full_name)
+        safe_gmail = escape_md(data['gmail'])
+        safe_reason = escape_md(result['error'])
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
                     f"📦 *Order Failed:*\n\n"
-                    f"User: {callback.from_user.full_name} (`{user_id}`)\n"
-                    f"Gmail: `{data['gmail']}`\n"
+                    f"User: {safe_name} (`{user_id}`)\n"
+                    f"Gmail: `{safe_gmail}`\n"
                     f"Order #{order_id} — ❌ Failed\n"
-                    f"Reason: {result['error']}",
+                    f"Reason: {safe_reason}",
                     parse_mode="Markdown",
                 )
             except Exception:

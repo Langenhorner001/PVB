@@ -1,0 +1,139 @@
+{
+  "task": "Telegram Bot Full Code Audit, Bug Fixing & Security Hardening",
+  "role": "You are a senior-level Python/Node.js developer, cybersecurity expert, and Telegram Bot API specialist. Your job is to perform a complete forensic-level audit of the entire Telegram bot codebase in this Replit project and fix every bug, vulnerability, logic flaw, and bad practice you discover.",
+
+  "objective": "Analyze the full Telegram bot source code present in this Replit workspace, detect ALL bugs, security vulnerabilities, performance issues, and logical errors, then fix them without breaking existing functionality.",
+
+  "scope": {
+    "files_to_analyze": [
+      "All .py / .js / .ts files in the project",
+      "requirements.txt / package.json",
+      "config files (.env, config.json, config.py)",
+      "database files / schemas",
+      "handlers, commands, middlewares, utils",
+      "replit.nix / .replit files"
+    ],
+    "do_not_touch": [
+      "Do NOT change the bot's core business logic or features",
+      "Do NOT rename commands unless necessary for a fix",
+      "Do NOT remove features — only fix them"
+    ]
+  },
+
+  "analysis_phases": {
+    "phase_1_discovery": {
+      "description": "Map the entire project structure",
+      "steps": [
+        "List every file and folder in the project",
+        "Identify the main entry point (main.py, bot.py, index.js)",
+        "Detect which framework is used (python-telegram-bot, aiogram, pyrogram, telebot, Telegraf, grammY, node-telegram-bot-api)",
+        "List all dependencies and their versions",
+        "Map all command handlers, callback handlers, and message handlers"
+      ]
+    },
+
+    "phase_2_bug_detection": {
+      "description": "Find all functional bugs",
+      "categories": [
+        "Unhandled exceptions and missing try/except blocks",
+        "Async/await misuse (missing awaits, blocking calls in async functions)",
+        "Incorrect Telegram API usage (wrong parse_mode, missing chat_id, invalid markup)",
+        "Race conditions in database or state management",
+        "Memory leaks (unclosed sessions, unclosed DB connections)",
+        "Infinite loops or recursive calls without base case",
+        "Incorrect callback_data parsing",
+        "Broken conversation/state handlers (FSM issues)",
+        "Wrong command filters or message filters",
+        "Timezone/datetime bugs",
+        "Encoding issues (Unicode, emoji handling)",
+        "Rate limit handling missing or broken"
+      ]
+    },
+
+    "phase_3_security_audit": {
+      "description": "Find all security vulnerabilities",
+      "checks": [
+        "Hardcoded BOT_TOKEN, API keys, or secrets in source code",
+        "Missing .env usage or leaked credentials",
+        "SQL injection vulnerabilities (raw queries with user input)",
+        "Command injection (os.system, subprocess with user input)",
+        "Path traversal in file operations",
+        "Missing input validation/sanitization on user messages",
+        "Missing admin-only check on sensitive commands",
+        "Unsafe eval() / exec() usage",
+        "Insecure deserialization (pickle on untrusted data)",
+        "Missing HTTPS verification on external API calls",
+        "Webhook without secret_token validation",
+        "Broken authentication / authorization logic",
+        "Logging of sensitive data (tokens, passwords, user PII)",
+        "Missing rate limiting / flood protection",
+        "Exposed debug mode in production"
+      ]
+    },
+
+    "phase_4_code_quality": {
+      "description": "Detect bad practices",
+      "checks": [
+        "Deprecated Telegram Bot API methods",
+        "Deprecated library functions",
+        "Synchronous blocking I/O in async handlers",
+        "Global variables misuse",
+        "Missing logging",
+        "No graceful shutdown handling",
+        "Inefficient database queries (N+1 problem)",
+        "Missing indexes on frequently queried columns"
+      ]
+    }
+  },
+
+  "fix_requirements": {
+    "rules": [
+      "For EVERY bug/vulnerability found, explain: (1) What it is, (2) Where it is (file + line), (3) Why it's dangerous, (4) How you fixed it",
+      "Move ALL secrets to Replit Secrets (environment variables) and update code to use os.getenv() / process.env",
+      "Add proper try/except with specific exception types — never use bare 'except:'",
+      "Add input validation on every user-facing handler",
+      "Use parameterized queries for all database operations",
+      "Add rate limiting / anti-flood middleware",
+      "Add admin check decorators for privileged commands",
+      "Ensure all async functions properly use await",
+      "Add graceful shutdown handling (SIGTERM, SIGINT)",
+      "Add structured logging (with levels: INFO, WARNING, ERROR)",
+      "Update deprecated API calls to latest Telegram Bot API version",
+      "Pin dependency versions in requirements.txt / package.json"
+    ]
+  },
+
+  "deliverables": {
+    "1_audit_report": "Generate a file named AUDIT_REPORT.md containing a full table of all issues found — columns: [#, Severity (Critical/High/Medium/Low), Category, File, Line, Description, Fix Applied]",
+    "2_fixed_code": "Apply all fixes directly to the codebase",
+    "3_changelog": "Generate CHANGES.md listing every file modified and a short summary of changes",
+    "4_env_template": "Create/update .env.example with all required environment variables (without real values)",
+    "5_test_run": "After fixes, run the bot once to verify it starts without errors and report the result"
+  },
+
+  "workflow": [
+    "Step 1: Scan and list the entire project structure",
+    "Step 2: Read every source file completely",
+    "Step 3: Perform analysis phases 1→2→3→4 sequentially",
+    "Step 4: Produce AUDIT_REPORT.md BEFORE making any changes",
+    "Step 5: Ask me to confirm before applying fixes IF any fix might change behavior",
+    "Step 6: Apply fixes file by file",
+    "Step 7: Generate CHANGES.md and .env.example",
+    "Step 8: Attempt a test run and report status",
+    "Step 9: Provide a final summary of: total bugs found, total fixed, severity breakdown"
+  ],
+
+  "output_format": {
+    "language": "Respond in clear English with short Roman Urdu summaries where helpful",
+    "style": "Be concise but thorough. Use code blocks for code. Use tables for issue lists.",
+    "no_assumptions": "If something is unclear (e.g., intended behavior of a function), ASK me before changing it"
+  },
+
+  "success_criteria": [
+    "Zero hardcoded secrets remain in code",
+    "Bot starts without errors",
+    "All critical & high severity issues fixed",
+    "AUDIT_REPORT.md clearly documents everything",
+    "No existing feature is broken"
+  ]
+}

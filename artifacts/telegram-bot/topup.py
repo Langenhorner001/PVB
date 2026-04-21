@@ -19,7 +19,9 @@ from db import (
     get_user_topups,
     add_balance,
     get_user,
+    record_payment,
 )
+from helpers import escape_md
 from keyboards import (
     main_menu,
     cancel_kb,
@@ -170,6 +172,12 @@ async def successful_payment(message: Message, bot: Bot):
             user_id, expected_stars, payment.total_amount, payment.currency,
         )
         await message.answer("⚠️ Payment amount mismatch. Please contact support.")
+        return
+
+    charge_id = payment.telegram_payment_charge_id or ""
+    is_new = await record_payment(charge_id, user_id, credits)
+    if not is_new:
+        logger.warning("top-up stars: duplicate charge_id %s for user %s — ignored", charge_id, user_id)
         return
 
     await add_balance(user_id, credits, "topup", f"Top-Up (Stars): {pkg['label']}")
@@ -414,8 +422,10 @@ async def cb_topup_approve(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass
 
+    safe_admin = escape_md(callback.from_user.full_name)
+    original = callback.message.text or ""
     await callback.message.edit_text(
-        callback.message.text + f"\n\n✅ *APPROVED* by {callback.from_user.full_name}",
+        f"{escape_md(original)}\n\n✅ *APPROVED* by {safe_admin}",
         parse_mode="Markdown",
     )
     await callback.answer("Approved & balance added.")
@@ -463,8 +473,10 @@ async def cb_topup_reject(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass
 
+    safe_admin = escape_md(callback.from_user.full_name)
+    original = callback.message.text or ""
     await callback.message.edit_text(
-        callback.message.text + f"\n\n❌ *REJECTED* by {callback.from_user.full_name}",
+        f"{escape_md(original)}\n\n❌ *REJECTED* by {safe_admin}",
         parse_mode="Markdown",
     )
     await callback.answer("Rejected.")
