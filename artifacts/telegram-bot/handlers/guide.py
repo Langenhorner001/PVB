@@ -1,10 +1,12 @@
 from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.filters import Command
 from keyboards import main_menu
 
 router = Router()
 
 
+@router.message(Command("guide"))
 @router.message(F.text == "📖 Guide")
 async def show_guide(message: Message):
     guide_text = (

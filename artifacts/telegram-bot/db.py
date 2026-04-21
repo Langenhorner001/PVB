@@ -1,7 +1,7 @@
 import aiosqlite
 import uuid
 from datetime import datetime
-from config import DB_PATH, REFERRAL_REWARD
+from config import DB_PATH, REFERRAL_REWARD, INITIAL_BALANCE
 
 
 async def init_db():
@@ -71,8 +71,8 @@ async def create_user(telegram_id: int, username: str, full_name: str, referred_
         await db.execute(
             """INSERT OR IGNORE INTO users 
                (telegram_id, username, full_name, balance, referral_code, referred_by, created_at, is_banned)
-               VALUES (?, ?, ?, 0, ?, ?, ?, 0)""",
-            (telegram_id, username, full_name, ref_code, referred_by, datetime.now().isoformat()),
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+            (telegram_id, username, full_name, INITIAL_BALANCE, ref_code, referred_by, datetime.now().isoformat()),
         )
         await db.commit()
     return ref_code, referred_by

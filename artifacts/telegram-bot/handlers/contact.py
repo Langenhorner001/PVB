@@ -1,11 +1,13 @@
 from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.filters import Command
 from keyboards import main_menu
 from config import SUPPORT_USERNAME
 
 router = Router()
 
 
+@router.message(Command("contact"))
 @router.message(F.text == "📞 Contact Support")
 async def show_contact(message: Message):
     await message.answer(

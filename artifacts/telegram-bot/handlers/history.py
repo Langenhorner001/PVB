@@ -1,11 +1,13 @@
 from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.filters import Command
 from db import get_orders
 from keyboards import main_menu
 
 router = Router()
 
 
+@router.message(Command("history"))
 @router.message(F.text == "📋 History")
 async def show_history(message: Message):
     orders = await get_orders(message.from_user.id, limit=10)
