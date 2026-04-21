@@ -1,7 +1,7 @@
 import aiosqlite
 import uuid
 from datetime import datetime
-from config import DB_PATH
+from config import DB_PATH, REFERRAL_REWARD
 
 
 async def init_db():
@@ -83,7 +83,7 @@ async def get_or_create_user(telegram_id: int, username: str, full_name: str, re
     if not user:
         referral_code, referred_by = await create_user(telegram_id, username, full_name, ref_code)
         if referred_by:
-            await add_balance(referred_by, 10, "referral", f"Referral bonus from {full_name}")
+            await add_balance(referred_by, REFERRAL_REWARD, "referral", f"Referral bonus from {full_name}")
         user = await get_user(telegram_id)
     return user
 

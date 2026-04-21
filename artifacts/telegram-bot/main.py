@@ -13,6 +13,7 @@ from aiogram.enums import ParseMode
 from config import BOT_TOKEN
 from db import init_db
 from middlewares.auth import BanCheckMiddleware
+from middlewares.throttle import ThrottleMiddleware
 
 from handlers import start, order, balance, history, referral, guide, contact, admin
 
@@ -38,6 +39,7 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
 
     dp.message.middleware(BanCheckMiddleware())
+    dp.message.middleware(ThrottleMiddleware())
 
     dp.include_router(start.router)
     dp.include_router(order.router)

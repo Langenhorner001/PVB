@@ -32,6 +32,15 @@ async def admin_panel(message: Message):
     await message.answer("🔐 *Admin Panel*\n\nChoose an action:", parse_mode="Markdown", reply_markup=admin_menu())
 
 
+@router.message(Command("broadcast"))
+async def cmd_broadcast(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Access denied.")
+        return
+    await state.set_state(AdminState.broadcast_msg)
+    await message.answer("📢 Enter the message to broadcast to all users:\n_(Type /cancel to stop)_", parse_mode="Markdown")
+
+
 @router.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
