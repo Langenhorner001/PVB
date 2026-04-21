@@ -24,7 +24,7 @@ class AdminState(StatesGroup):
     unban_id = State()
 
 
-@router.message(Command("admin"))
+@router.message(Command("admin", prefix="/."))
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id):
         await message.answer("❌ Access denied.")
@@ -32,7 +32,7 @@ async def admin_panel(message: Message):
     await message.answer("🔐 *Admin Panel*\n\nChoose an action:", parse_mode="Markdown", reply_markup=admin_menu())
 
 
-@router.message(Command("broadcast"))
+@router.message(Command("broadcast", prefix="/."))
 async def cmd_broadcast(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         await message.answer("❌ Access denied.")

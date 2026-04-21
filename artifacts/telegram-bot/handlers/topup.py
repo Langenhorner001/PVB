@@ -42,7 +42,7 @@ class TopUpFlow(StatesGroup):
 METHOD_LABELS = {"easypaisa": "Easypaisa", "jazzcash": "JazzCash"}
 
 
-@router.message(Command("topup"))
+@router.message(Command("topup", prefix="/."))
 @router.message(F.text == "💳 Top-Up")
 async def cmd_topup(message: Message, state: FSMContext):
     await state.clear()
@@ -156,7 +156,7 @@ async def cb_topup_method(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.message(TopUpFlow.waiting_transaction_ref, Command("cancel"))
+@router.message(TopUpFlow.waiting_transaction_ref, Command("cancel", prefix="/."))
 async def cancel_topup(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Top-up cancel kar diya gaya.", reply_markup=main_menu())
@@ -315,7 +315,7 @@ async def cb_topup_reject(callback: CallbackQuery, bot: Bot):
     await callback.answer("Rejected.")
 
 
-@router.message(Command("mytopups"))
+@router.message(Command("mytopups", prefix="/."))
 async def cmd_my_topups(message: Message):
     rows = await get_user_topups(message.from_user.id)
     if not rows:
@@ -334,7 +334,7 @@ async def cmd_my_topups(message: Message):
     await message.answer("\n".join(lines), parse_mode="Markdown")
 
 
-@router.message(Command("pendingtopups"))
+@router.message(Command("pendingtopups", prefix="/."))
 async def cmd_pending_topups(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return

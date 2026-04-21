@@ -6,7 +6,7 @@ from keyboards import main_menu
 router = Router()
 
 
-@router.message(Command("guide"))
+@router.message(Command("guide", prefix="/."))
 @router.message(F.text == "📖 Guide")
 async def show_guide(message: Message):
     guide_text = (

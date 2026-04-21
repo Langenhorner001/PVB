@@ -15,7 +15,7 @@ from db import init_db
 from middlewares.auth import BanCheckMiddleware
 from middlewares.throttle import ThrottleMiddleware
 
-from handlers import start, order, balance, history, referral, guide, contact, admin, topup
+from handlers import start, order, balance, history, referral, guide, contact, admin, topup, system
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +49,7 @@ async def main():
     dp.include_router(referral.router)
     dp.include_router(guide.router)
     dp.include_router(contact.router)
+    dp.include_router(system.router)
     dp.include_router(admin.router)
 
     logger.info("Bot is starting...")

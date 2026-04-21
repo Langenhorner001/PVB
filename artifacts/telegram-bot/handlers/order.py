@@ -27,7 +27,8 @@ async def place_order_start(message: Message, state: FSMContext):
         await message.answer("Please use /start first.")
         return
 
-    if user["balance"] < ORDER_COST:
+    is_admin = message.from_user.id in ADMIN_IDS
+    if not is_admin and user["balance"] < ORDER_COST:
         await message.answer(
             f"❌ *Insufficient Balance!*\n\n"
             f"💰 Your balance: `{user['balance']}` credits\n"
@@ -48,7 +49,7 @@ async def place_order_start(message: Message, state: FSMContext):
     )
 
 
-@router.message(Command("cancel"))
+@router.message(Command("cancel", prefix="/."))
 async def cancel_order(message: Message, state: FSMContext):
     current = await state.get_state()
     if current:
@@ -141,7 +142,9 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         await callback.answer()
         return
 
-    if user["balance"] < ORDER_COST:
+    is_admin = user_id in ADMIN_IDS
+
+    if not is_admin and user["balance"] < ORDER_COST:
         await callback.message.edit_text("❌ Insufficient balance!")
         await callback.answer()
         return
@@ -153,12 +156,13 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
     )
 
     order_id = await create_order(user_id, data["gmail"])
-    deducted = await deduct_balance(user_id, ORDER_COST, "order", f"Order #{order_id}")
 
-    if not deducted:
-        await callback.message.edit_text("❌ Balance deduction failed. Please try again.")
-        await callback.answer()
-        return
+    if not is_admin:
+        deducted = await deduct_balance(user_id, ORDER_COST, "order", f"Order #{order_id}")
+        if not deducted:
+            await callback.message.edit_text("❌ Balance deduction failed. Please try again.")
+            await callback.answer()
+            return
 
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
@@ -203,12 +207,18 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
 
     else:
         await update_order(order_id, "failed")
-        await add_balance(user_id, ORDER_COST, "refund", f"Refund for failed Order #{order_id}")
+        if not is_admin:
+            await add_balance(user_id, ORDER_COST, "refund", f"Refund for failed Order #{order_id}")
 
+        refund_line = (
+            f"💰 Your balance has been *refunded* (`{ORDER_COST}` credits).\n\n"
+            if not is_admin
+            else "👑 Admin order — no balance was charged.\n\n"
+        )
         error_msg = (
             f"❌ *Order Failed*\n\n"
             f"Reason: {result['error']}\n\n"
-            f"💰 Your balance has been *refunded* (`{ORDER_COST}` credits).\n\n"
+            f"{refund_line}"
             f"Please check your credentials and try again."
         )
         await callback.message.answer(error_msg, parse_mode="Markdown", reply_markup=main_menu())
