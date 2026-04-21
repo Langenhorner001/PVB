@@ -1,4 +1,5 @@
 import asyncio
+import functools
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -7,7 +8,7 @@ from aiogram.filters import Command
 from db import get_user, deduct_balance, add_balance, create_order, update_order
 from keyboards import main_menu, cancel_kb, confirm_order_kb
 from google_auth import google_login_and_get_link
-from helpers import escape_md
+import re as _re
 from config import ORDER_COST, ADMIN_IDS
 
 router = Router()
@@ -66,9 +67,6 @@ async def cancel_order(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_gmail)
 async def got_gmail(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Please send your Gmail as text.")
-        return
     email = message.text.strip()
     if "@" not in email or "." not in email:
         await message.answer("⚠️ Invalid email. Please enter a valid Gmail address:")
@@ -85,43 +83,64 @@ async def got_gmail(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_password)
 async def got_password(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Please send your password as text.")
-        return
-    password = message.text.strip()  # do-not-log: sensitive credential
+    password = message.text.strip()
     if len(password) < 6:
         await message.answer("⚠️ Password too short. Please enter your correct password:")
         return
     await state.update_data(password=password)
     await state.set_state(OrderState.waiting_2fa)
     await message.answer(
-        f"🔐 *Step 3 of 3* — Enter your *2FA Secret Key* (TOTP):\n\n"
-        f"This is the secret key from your authenticator app setup\n"
-        f"(e.g., `JBSWY3DPEHPK3PXP`)\n\n"
+        f"🔐 *Step 3 of 3* — Enter your *2FA credential*:\n\n"
+        f"• *TOTP secret key* from your authenticator app\n"
+        f"  (e.g., `JBSWY3DPEHPK3PXP`)\n\n"
+        f"• *or* a Google *backup code* (8 digits, e.g., `12345678`)\n\n"
         f"_(Type /cancel to stop)_",
         parse_mode="Markdown",
     )
 
 
+def _parse_2fa_input(raw: str):
+    """
+    Detect whether the user entered a TOTP secret or a Google backup code.
+
+    Google backup codes are exactly 8 digits (spaces/dashes allowed).
+    Everything else is treated as a TOTP secret.
+
+    Returns (totp_secret, backup_code) where one of them will be None.
+    """
+    clean = raw.strip().replace(" ", "").replace("-", "")
+    if _re.fullmatch(r"[0-9]{8}", clean):
+        return None, clean
+    return raw.strip(), None
+
+
 @router.message(OrderState.waiting_2fa)
 async def got_2fa(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Please send your 2FA secret as text.")
+    raw = message.text.strip()
+    totp_secret, backup_code = _parse_2fa_input(raw)
+
+    if totp_secret is None and backup_code is None:
+        await message.answer("⚠️ Input not recognised. Please enter your 2FA secret or an 8-digit backup code:")
         return
-    secret = message.text.strip().replace(" ", "")  # do-not-log: sensitive credential
-    if len(secret) < 8:
+
+    if totp_secret is not None and len(totp_secret.replace(" ", "")) < 8:
         await message.answer("⚠️ 2FA secret seems too short. Please check and re-enter:")
         return
 
-    await state.update_data(totp_secret=secret)
+    await state.update_data(totp_secret=totp_secret, backup_code=backup_code)
     data = await state.get_data()
     await state.set_state(OrderState.confirming)
+
+    if backup_code:
+        cred_line = f"🔐 2FA: backup code `{backup_code[:4]}****`"
+    else:
+        cred_line = f"🔐 2FA Secret: `{totp_secret[:4]}...`"
 
     await message.answer(
         f"📋 *Order Summary*\n\n"
         f"📧 Gmail: `{data['gmail']}`\n"
         f"🔑 Password: `{'*' * len(data['password'])}`\n"
-        f"🔐 2FA Secret: `{secret[:4]}...`\n\n"
+        f"{cred_line}\n\n"
         f"💵 Cost: `{ORDER_COST}` credits\n\n"
         f"Confirm your order?",
         parse_mode="Markdown",
@@ -178,12 +197,15 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
             await callback.answer()
             return
 
-    result = await asyncio.to_thread(
+    loop = asyncio.get_event_loop()
+    login_fn = functools.partial(
         google_login_and_get_link,
         data["gmail"],
         data["password"],
-        data["totp_secret"],
+        data.get("totp_secret"),
+        backup_code=data.get("backup_code"),
     )
+    result = await loop.run_in_executor(None, login_fn)
 
     if result["success"]:
         link = result["link"]
@@ -203,17 +225,15 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         user_obj = await get_user(user_id)
         updated_balance = user_obj["balance"] if user_obj else 0
 
-        safe_name = escape_md(callback.from_user.full_name)
-        safe_gmail = escape_md(data['gmail'])
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
-                    f"📦 *Order Update:*\n\n"
-                    f"User: {safe_name} (`{user_id}`)\n"
-                    f"Gmail: `{safe_gmail}`\n"
+                    f"📦 *Order Update from Admin:*\n\n"
+                    f"User: {callback.from_user.full_name} (`{user_id}`)\n"
+                    f"Gmail: `{data['gmail']}`\n"
                     f"Order #{order_id} — ✅ Success\n"
-                    f"Charged: `{0 if is_admin else ORDER_COST}` credits",
+                    f"tap {ORDER_COST}",
                     parse_mode="Markdown",
                 )
             except Exception:
@@ -237,18 +257,15 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         )
         await callback.message.answer(error_msg, parse_mode="Markdown", reply_markup=main_menu())
 
-        safe_name = escape_md(callback.from_user.full_name)
-        safe_gmail = escape_md(data['gmail'])
-        safe_reason = escape_md(result['error'])
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
                     f"📦 *Order Failed:*\n\n"
-                    f"User: {safe_name} (`{user_id}`)\n"
-                    f"Gmail: `{safe_gmail}`\n"
+                    f"User: {callback.from_user.full_name} (`{user_id}`)\n"
+                    f"Gmail: `{data['gmail']}`\n"
                     f"Order #{order_id} — ❌ Failed\n"
-                    f"Reason: {safe_reason}",
+                    f"Reason: {result['error']}",
                     parse_mode="Markdown",
                 )
             except Exception:

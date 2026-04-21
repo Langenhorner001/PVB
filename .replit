@@ -24,12 +24,12 @@ args = "Telegram Bot"
 name = "Telegram Bot"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/telegram-bot && python main.py"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/telegram-bot && pip install -q playwright && playwright install chromium && python main.py"
 
 [agent]
 stack = "PNPM_WORKSPACE"
