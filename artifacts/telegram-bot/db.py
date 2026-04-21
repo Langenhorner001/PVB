@@ -291,3 +291,90 @@ async def get_referral_count(telegram_id: int) -> int:
             "SELECT COUNT(*) FROM users WHERE referred_by = ?", (telegram_id,)
         ) as c:
             return (await c.fetchone())[0]
+
+
+async def get_order_by_id(order_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT o.*, u.username, u.full_name
+               FROM orders o
+               LEFT JOIN users u ON o.user_id = u.telegram_id
+               WHERE o.id = ?""",
+            (order_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_recent_orders(limit: int = 20):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT o.*, u.username, u.full_name
+               FROM orders o
+               LEFT JOIN users u ON o.user_id = u.telegram_id
+               ORDER BY o.created_at DESC LIMIT ?""",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def search_orders(query: str, limit: int = 20):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = query.strip()
+        if query.isdigit():
+            async with db.execute(
+                """SELECT o.*, u.username, u.full_name
+                   FROM orders o
+                   LEFT JOIN users u ON o.user_id = u.telegram_id
+                   WHERE o.user_id = ? OR o.id = ?
+                   ORDER BY o.created_at DESC LIMIT ?""",
+                (int(query), int(query), limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            pattern = f"%{query}%"
+            async with db.execute(
+                """SELECT o.*, u.username, u.full_name
+                   FROM orders o
+                   LEFT JOIN users u ON o.user_id = u.telegram_id
+                   WHERE o.gmail LIKE ?
+                   ORDER BY o.created_at DESC LIMIT ?""",
+                (pattern, limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def refund_order(order_id: int, order_cost: int) -> bool:
+    """Refund an order: restore credits to user and mark as refunded.
+    Returns True if the order was found and refunded, False otherwise."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return False
+        order = dict(row)
+        if order["status"] == "refunded":
+            return False
+        cursor = await db.execute(
+            "UPDATE orders SET status = 'refunded' WHERE id = ? AND status != 'refunded'",
+            (order_id,),
+        )
+        if cursor.rowcount == 0:
+            await db.commit()
+            return False
+        await db.execute(
+            "UPDATE users SET balance = balance + ? WHERE telegram_id = ?",
+            (order_cost, order["user_id"]),
+        )
+        await db.execute(
+            "INSERT INTO transactions (user_id, amount, type, description, created_at) VALUES (?, ?, ?, ?, ?)",
+            (order["user_id"], order_cost, "refund", f"Admin refund for Order #{order_id}", datetime.now().isoformat()),
+        )
+        await db.commit()
+    return True

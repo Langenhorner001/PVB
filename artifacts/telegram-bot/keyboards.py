@@ -83,6 +83,7 @@ def admin_menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="📦 Orders", callback_data="admin_orders")],
             [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="➕ Add Balance", callback_data="admin_add_bal")],
             [InlineKeyboardButton(text="➖ Deduct Balance", callback_data="admin_deduct_bal")],
@@ -90,6 +91,27 @@ def admin_menu():
             [InlineKeyboardButton(text="✅ Unban User", callback_data="admin_unban")],
         ]
     )
+
+
+def admin_order_kb(order_id: int, status: str):
+    buttons = []
+    if status != "success":
+        buttons.append([InlineKeyboardButton(text="✅ Mark Successful", callback_data=f"admin_order_success:{order_id}")])
+    if status not in ("refunded",):
+        buttons.append([InlineKeyboardButton(text="💸 Issue Refund", callback_data=f"admin_order_refund:{order_id}")])
+    buttons.append([InlineKeyboardButton(text="🔙 Back to Orders", callback_data="admin_orders")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def admin_orders_list_kb(orders: list):
+    buttons = []
+    for o in orders:
+        status_icon = {"success": "✅", "failed": "❌", "processing": "⏳", "refunded": "💸"}.get(o["status"], "❓")
+        label = f"{status_icon} #{o['id']} — {o['gmail'][:20]}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"admin_order_detail:{o['id']}")])
+    buttons.append([InlineKeyboardButton(text="🔍 Search Orders", callback_data="admin_order_search")])
+    buttons.append([InlineKeyboardButton(text="🔙 Admin Menu", callback_data="admin_back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def confirm_order_kb():

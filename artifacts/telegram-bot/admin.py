@@ -6,10 +6,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
-from db import get_stats, get_all_users, add_balance, deduct_balance, ban_user, get_user
-from keyboards import admin_menu, main_menu
+from db import (
+    get_stats, get_all_users, add_balance, deduct_balance, ban_user, get_user,
+    get_recent_orders, search_orders, get_order_by_id, update_order, refund_order,
+)
+from keyboards import admin_menu, main_menu, admin_orders_list_kb, admin_order_kb
 from helpers import escape_md
-from config import ADMIN_IDS
+from config import ADMIN_IDS, ORDER_COST
 
 logger = logging.getLogger(__name__)
 MAX_ADMIN_CREDIT = 1_000_000
@@ -30,6 +33,8 @@ class AdminState(StatesGroup):
     deduct_bal_amount = State()
     ban_id = State()
     unban_id = State()
+    order_search_query = State()
+    order_success_link = State()
 
 
 @router.message(Command("admin", prefix="/."))
@@ -239,3 +244,192 @@ async def admin_do_unban(message: Message, state: FSMContext):
     await state.clear()
     await ban_user(uid, False)
     await message.answer(f"✅ User `{uid}` has been unbanned.", parse_mode="Markdown", reply_markup=main_menu())
+
+
+def _format_order_detail(order: dict) -> str:
+    status_icon = {"success": "✅", "failed": "❌", "processing": "⏳", "refunded": "💸"}.get(order["status"], "❓")
+    name = order.get("full_name") or order.get("username") or "Unknown"
+    lines = [
+        f"📦 *Order #{order['id']}*",
+        f"",
+        f"👤 User: {escape_md(name)} (`{order['user_id']}`)",
+        f"📧 Gmail: `{escape_md(order['gmail'])}`",
+        f"📌 Status: {status_icon} `{order['status']}`",
+        f"🕐 Created: `{order['created_at'][:16]}`",
+    ]
+    if order.get("generated_link"):
+        lines.append(f"🔗 Link: `{escape_md(order['generated_link'])}`")
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data == "admin_back")
+async def admin_back(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    await callback.message.answer("🔐 *Admin Panel*\n\nChoose an action:", parse_mode="Markdown", reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_orders")
+async def admin_orders(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    orders = await get_recent_orders(limit=15)
+    stats = await get_stats()
+    header = (
+        f"📦 *Recent Orders*\n\n"
+        f"Total Orders: `{stats['total_orders']}` | Successful: `{stats['success_orders']}`\n\n"
+        f"Showing last {len(orders)}:"
+    )
+    if not orders:
+        header = "📦 *Orders*\n\nNo orders found."
+    await callback.message.answer(header, parse_mode="Markdown", reply_markup=admin_orders_list_kb(orders))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_order_search")
+async def admin_order_search_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    await state.set_state(AdminState.order_search_query)
+    await callback.message.answer(
+        "🔍 *Search Orders*\n\nEnter a *Gmail address* (or part of it), *User ID*, or *Order ID*:\n_(Type /cancel to stop)_",
+        parse_mode="Markdown",
+    )
+    await callback.answer()
+
+
+@router.message(AdminState.order_search_query)
+async def admin_order_search_execute(message: Message, state: FSMContext):
+    query = message.text.strip() if message.text else ""
+    if not query:
+        await message.answer("Please enter a search term:")
+        return
+    await state.clear()
+    orders = await search_orders(query, limit=15)
+    if not orders:
+        await message.answer(
+            f"🔍 No orders found for `{escape_md(query)}`.",
+            parse_mode="Markdown",
+            reply_markup=admin_orders_list_kb([]),
+        )
+        return
+    await message.answer(
+        f"🔍 *Search Results* for `{escape_md(query)}`\n\nFound {len(orders)} order(s):",
+        parse_mode="Markdown",
+        reply_markup=admin_orders_list_kb(orders),
+    )
+
+
+@router.callback_query(F.data.startswith("admin_order_detail:"))
+async def admin_order_detail(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    try:
+        order_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Invalid order ID.", show_alert=True)
+        return
+    order = await get_order_by_id(order_id)
+    if not order:
+        await callback.answer("Order not found.", show_alert=True)
+        return
+    text = _format_order_detail(order)
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=admin_order_kb(order_id, order["status"]))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_order_success:"))
+async def admin_order_success_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    try:
+        order_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Invalid order ID.", show_alert=True)
+        return
+    order = await get_order_by_id(order_id)
+    if not order:
+        await callback.answer("Order not found.", show_alert=True)
+        return
+    await state.update_data(target_order_id=order_id)
+    await state.set_state(AdminState.order_success_link)
+    await callback.message.answer(
+        f"✅ *Mark Order #{order_id} as Successful*\n\nPaste the partner link to assign:\n_(Type /cancel to stop)_",
+        parse_mode="Markdown",
+    )
+    await callback.answer()
+
+
+@router.message(AdminState.order_success_link)
+async def admin_order_success_link(message: Message, state: FSMContext, bot: Bot):
+    link = message.text.strip() if message.text else ""
+    if not link or not link.startswith("http"):
+        await message.answer("⚠️ Please enter a valid URL (starting with http):")
+        return
+    data = await state.get_data()
+    order_id = data["target_order_id"]
+    await state.clear()
+    await update_order(order_id, "success", link)
+    order = await get_order_by_id(order_id)
+    await message.answer(
+        f"✅ Order `#{order_id}` marked as *successful*.\n🔗 Link set.",
+        parse_mode="Markdown",
+        reply_markup=main_menu(),
+    )
+    if order:
+        try:
+            await bot.send_message(
+                order["user_id"],
+                f"✅ *Your order has been resolved!*\n\n"
+                f"Order #{order_id} has been manually marked as successful by an admin.\n\n"
+                f"🔗 Your Google AI Pro link:\n{link}\n\n"
+                f"⚠️ Use this link in a browser where *only this Gmail account* is logged in.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data.startswith("admin_order_refund:"))
+async def admin_order_refund(callback: CallbackQuery, bot: Bot):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    try:
+        order_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Invalid order ID.", show_alert=True)
+        return
+    order = await get_order_by_id(order_id)
+    if not order:
+        await callback.answer("Order not found.", show_alert=True)
+        return
+    if order["status"] == "refunded":
+        await callback.answer("This order has already been refunded.", show_alert=True)
+        return
+    success = await refund_order(order_id, ORDER_COST)
+    if not success:
+        await callback.answer("Refund failed — order may already be refunded.", show_alert=True)
+        return
+    await callback.message.answer(
+        f"💸 Order `#{order_id}` refunded.\n`{ORDER_COST}` credits returned to user `{order['user_id']}`.",
+        parse_mode="Markdown",
+        reply_markup=main_menu(),
+    )
+    try:
+        await bot.send_message(
+            order["user_id"],
+            f"💸 *Refund Processed*\n\n"
+            f"Order #{order_id} has been refunded by an admin.\n"
+            f"`{ORDER_COST}` credits have been added back to your balance.",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
+    await callback.answer("Refund issued.")
