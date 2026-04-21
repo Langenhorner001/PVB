@@ -1,6 +1,6 @@
 import asyncio
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram import Router, F, Bot
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
@@ -8,7 +8,6 @@ from db import get_user, deduct_balance, add_balance, create_order, update_order
 from keyboards import main_menu, cancel_kb, confirm_order_kb
 from google_auth import google_login_and_get_link
 from config import ORDER_COST, ADMIN_IDS
-from aiogram import Bot
 
 router = Router()
 
@@ -29,13 +28,18 @@ async def place_order_start(message: Message, state: FSMContext):
 
     is_admin = message.from_user.id in ADMIN_IDS
     if not is_admin and user["balance"] < ORDER_COST:
+        topup_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Top-Up Now", callback_data="open_topup")]
+            ]
+        )
         await message.answer(
             f"❌ *Insufficient Balance!*\n\n"
             f"💰 Your balance: `{user['balance']}` credits\n"
             f"💵 Order cost: `{ORDER_COST}` credits\n\n"
-            f"Please top-up your balance to continue.",
+            f"Top-up your balance to continue.",
             parse_mode="Markdown",
-            reply_markup=main_menu(),
+            reply_markup=topup_kb,
         )
         return
 

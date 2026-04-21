@@ -1,4 +1,5 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from config import TOPUP_PACKAGES
 
 def main_menu():
     return ReplyKeyboardMarkup(
@@ -9,6 +10,16 @@ def main_menu():
             [KeyboardButton(text="📞 Contact Support")],
         ],
         resize_keyboard=True,
+    )
+
+
+def topup_method_choice_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Telegram Stars (Instant)", callback_data="open_stars_topup")],
+            [InlineKeyboardButton(text="📱 Easypaisa / JazzCash (Manual)", callback_data="open_manual_topup")],
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="topup_cancel")],
+        ]
     )
 
 
@@ -46,6 +57,19 @@ def topup_admin_kb(request_id: int):
             ]
         ]
     )
+
+
+def topup_packages_kb():
+    buttons = []
+    for pkg in TOPUP_PACKAGES:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{pkg['emoji']} {pkg['label']} — {pkg['stars']} ⭐",
+                callback_data=pkg["id"],
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="❌ Cancel", callback_data="topup_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def cancel_kb():

@@ -1,5 +1,12 @@
+import json
+import logging
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    LabeledPrice,
+    PreCheckoutQuery,
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
@@ -16,21 +23,30 @@ from db import (
 from keyboards import (
     main_menu,
     cancel_kb,
+    topup_method_choice_kb,
     topup_amounts_kb,
     topup_method_kb,
     topup_admin_kb,
+    topup_packages_kb,
 )
 from config import (
     TOPUP_AMOUNTS,
+    TOPUP_PACKAGES,
     MIN_TOPUP,
     PAYMENT_EASYPAISA,
     PAYMENT_JAZZCASH,
     PAYMENT_ACCOUNT_NAME,
     ADMIN_IDS,
     SUPPORT_USERNAME,
+    ORDER_COST,
 )
 
+logger = logging.getLogger(__name__)
 router = Router()
+
+_PACKAGES_BY_ID = {pkg["id"]: pkg for pkg in TOPUP_PACKAGES}
+
+METHOD_LABELS = {"easypaisa": "Easypaisa", "jazzcash": "JazzCash"}
 
 
 class TopUpFlow(StatesGroup):
@@ -39,27 +55,164 @@ class TopUpFlow(StatesGroup):
     waiting_transaction_ref = State()
 
 
-METHOD_LABELS = {"easypaisa": "Easypaisa", "jazzcash": "JazzCash"}
-
+# ─────────────────────────── Entry points ────────────────────────────
 
 @router.message(Command("topup", prefix="/."))
 @router.message(F.text == "💳 Top-Up")
 async def cmd_topup(message: Message, state: FSMContext):
     await state.clear()
-    text = (
+    user = await get_user(message.from_user.id)
+    if not user:
+        await message.answer("Please use /start first.")
+        return
+    await message.answer(
         "💳 *Top-Up Balance*\n\n"
-        "Apna balance recharge karne ke liye amount select karein.\n"
-        "Ya phir *Custom Amount* dabake apni marzi ka amount likhein.\n\n"
-        f"_Minimum top-up: {MIN_TOPUP} credits_"
+        "Choose your preferred payment method:",
+        parse_mode="Markdown",
+        reply_markup=topup_method_choice_kb(),
     )
-    await message.answer(text, parse_mode="Markdown", reply_markup=topup_amounts_kb(TOPUP_AMOUNTS))
+
+
+@router.callback_query(F.data == "open_topup")
+async def cb_open_topup(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text(
+        "💳 *Top-Up Balance*\n\n"
+        "Choose your preferred payment method:",
+        parse_mode="Markdown",
+        reply_markup=topup_method_choice_kb(),
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "topup_cancel")
 async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text("❌ Top-up cancel kar diya gaya.")
-    await callback.message.answer("Main menu:", reply_markup=main_menu())
+    await callback.message.edit_text("❌ Top-Up cancelled.")
+    await callback.message.answer("Back to menu:", reply_markup=main_menu())
+    await callback.answer()
+
+
+# ─────────────────────── Telegram Stars flow ─────────────────────────
+
+@router.callback_query(F.data == "open_stars_topup")
+async def cb_open_stars_topup(callback: CallbackQuery):
+    lines = ["⭐ *Top-Up via Telegram Stars*\n", "Select a package:\n"]
+    for pkg in TOPUP_PACKAGES:
+        lines.append(f"{pkg['emoji']} *{pkg['label']}* — {pkg['stars']} ⭐ Telegram Stars")
+    lines.append("\n_Payment is processed instantly and securely via Telegram Stars._")
+    await callback.message.edit_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=topup_packages_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pkg_"))
+async def cb_stars_select_package(callback: CallbackQuery, bot: Bot):
+    pkg = _PACKAGES_BY_ID.get(callback.data)
+    if not pkg:
+        await callback.answer("Unknown package.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    await bot.send_invoice(
+        chat_id=callback.from_user.id,
+        title=f"{pkg['emoji']} {pkg['label']}",
+        description=(
+            f"Add {pkg['credits']} credits to your balance.\n"
+            f"Each order costs {ORDER_COST} credits."
+        ),
+        payload=json.dumps({"pkg_id": pkg["id"], "credits": pkg["credits"], "stars": pkg["stars"]}),
+        currency="XTR",
+        prices=[LabeledPrice(label=pkg["label"], amount=pkg["stars"])],
+    )
+
+    await callback.message.edit_text(
+        f"✅ Invoice sent for *{pkg['label']}* ({pkg['stars']} ⭐).\n\n"
+        f"Complete the payment in the message above.",
+        parse_mode="Markdown",
+    )
+
+
+@router.pre_checkout_query()
+async def pre_checkout(query: PreCheckoutQuery):
+    await query.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def successful_payment(message: Message, bot: Bot):
+    payment = message.successful_payment
+    user_id = message.from_user.id
+
+    try:
+        payload = json.loads(payment.invoice_payload)
+    except (json.JSONDecodeError, KeyError):
+        logger.error("top-up stars: invalid payload for user %s: %s", user_id, payment.invoice_payload)
+        await message.answer("⚠️ Payment received but payload was invalid. Please contact support.")
+        return
+
+    pkg_id = payload.get("pkg_id")
+    credits = payload.get("credits")
+    expected_stars = payload.get("stars")
+
+    pkg = _PACKAGES_BY_ID.get(pkg_id)
+    if not pkg or credits is None:
+        logger.error("top-up stars: unknown package '%s' for user %s", pkg_id, user_id)
+        await message.answer("⚠️ Payment received but package was unrecognised. Please contact support.")
+        return
+
+    if payment.currency != "XTR" or payment.total_amount != expected_stars:
+        logger.error(
+            "top-up stars: payment mismatch for user %s — expected %s XTR, got %s %s",
+            user_id, expected_stars, payment.total_amount, payment.currency,
+        )
+        await message.answer("⚠️ Payment amount mismatch. Please contact support.")
+        return
+
+    await add_balance(user_id, credits, "topup", f"Top-Up (Stars): {pkg['label']}")
+
+    user = await get_user(user_id)
+    new_balance = user["balance"] if user else credits
+
+    await message.answer(
+        f"✅ *Payment Successful!*\n\n"
+        f"💰 *{credits} credits* have been added to your balance.\n"
+        f"🏦 New Balance: `{new_balance}` credits\n\n"
+        f"You can now place orders. Each order costs {ORDER_COST} credits.",
+        parse_mode="Markdown",
+        reply_markup=main_menu(),
+    )
+
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"💳 *Top-Up Received (Stars)*\n\n"
+                f"User: {message.from_user.full_name} (`{user_id}`)\n"
+                f"Package: {pkg['label']}\n"
+                f"Credits Added: `{credits}`\n"
+                f"Stars Paid: `{expected_stars}` ⭐\n"
+                f"New Balance: `{new_balance}` credits",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            logger.warning("top-up stars: failed to notify admin %s for user %s top-up", admin_id, user_id)
+
+
+# ──────────────────── Easypaisa / JazzCash manual flow ───────────────
+
+@router.callback_query(F.data == "open_manual_topup")
+async def cb_open_manual_topup(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    text = (
+        "📱 *Top-Up via Easypaisa / JazzCash*\n\n"
+        "Amount select karein ya custom amount likhein.\n\n"
+        f"_Minimum top-up: {MIN_TOPUP} credits_"
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=topup_amounts_kb(TOPUP_AMOUNTS))
     await callback.answer()
 
 
@@ -210,8 +363,10 @@ async def msg_trx_ref(message: Message, state: FSMContext, bot: Bot):
                 reply_markup=topup_admin_kb(request_id),
             )
         except Exception:
-            pass
+            logger.warning("top-up manual: failed to notify admin %s for request #%s", admin_id, request_id)
 
+
+# ────────────────────── Admin approval / rejection ───────────────────
 
 @router.callback_query(F.data.startswith("topup_approve:"))
 async def cb_topup_approve(callback: CallbackQuery, bot: Bot):
@@ -314,6 +469,8 @@ async def cb_topup_reject(callback: CallbackQuery, bot: Bot):
     )
     await callback.answer("Rejected.")
 
+
+# ─────────────────────── User history commands ───────────────────────
 
 @router.message(Command("mytopups", prefix="/."))
 async def cmd_my_topups(message: Message):

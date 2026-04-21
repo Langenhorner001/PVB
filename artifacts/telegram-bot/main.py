@@ -43,8 +43,8 @@ async def main():
 
     dp.include_router(start.router)
     dp.include_router(order.router)
-    dp.include_router(topup.router)
     dp.include_router(balance.router)
+    dp.include_router(topup.router)
     dp.include_router(history.router)
     dp.include_router(referral.router)
     dp.include_router(guide.router)
