@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
-from db import get_user, deduct_balance, create_order, update_order
+from db import get_user, deduct_balance, add_balance, create_order, update_order
 from keyboards import main_menu, cancel_kb, confirm_order_kb
 from google_auth import google_login_and_get_link
 from config import ORDER_COST, ADMIN_IDS
@@ -125,10 +125,21 @@ async def cb_cancel_order(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "confirm_order")
 async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
+
+    if not data or "gmail" not in data:
+        await callback.message.edit_text("⚠️ Session expired. Please start a new order.")
+        await callback.answer()
+        return
+
     await state.clear()
 
     user_id = callback.from_user.id
     user = await get_user(user_id)
+
+    if not user:
+        await callback.message.edit_text("⚠️ User not found. Please use /start first.")
+        await callback.answer()
+        return
 
     if user["balance"] < ORDER_COST:
         await callback.message.edit_text("❌ Insufficient balance!")
@@ -192,7 +203,7 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
 
     else:
         await update_order(order_id, "failed")
-        await deduct_balance(user_id, -ORDER_COST, "refund", f"Refund for failed Order #{order_id}")
+        await add_balance(user_id, ORDER_COST, "refund", f"Refund for failed Order #{order_id}")
 
         error_msg = (
             f"❌ *Order Failed*\n\n"

@@ -10,16 +10,22 @@ dist/
 build/
 .venv/
 .pythonlibs/
+uv.lock
 
 # Bot runtime database
 bot_data.db
 artifacts/telegram-bot/bot_data.db
 **/bot_data.db
 
-# Node
+# Node / pnpm
 node_modules/
 .pnpm-debug.log
+.pnpm-store/
 
-# Build outputs
+# TypeScript build outputs
+*.tsbuildinfo
 dist/
 *.mjs.map
+
+# Replit
+.cache/
