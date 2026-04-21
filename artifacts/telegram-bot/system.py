@@ -98,7 +98,7 @@ async def cmd_ping(message: Message, bot: Bot):
     text = (
         "🏓 *Pong!*\n\n"
         f"⚡️ Latency: `{rtt_ms} ms`\n"
-        f"🤖 Bot: @{me.username}\n"
+        f"🤖 Bot: `@{me.username}`\n"
         f"🟢 Status: *Online*"
     )
     await sent_msg.edit_text(text, parse_mode="Markdown")
@@ -134,7 +134,7 @@ async def cmd_status(message: Message, bot: Bot):
     text = (
         "🟢 *Bot Status: ONLINE*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 Bot: @{me.username}\n"
+        f"🤖 Bot: `@{me.username}`\n"
         f"🆔 ID: `{me.id}`\n"
         f"⚡️ API Latency: `{rtt_ms} ms`\n"
         f"⏱ Uptime: `{uptime}`\n"
