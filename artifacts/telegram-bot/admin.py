@@ -1,7 +1,10 @@
 import asyncio
+import csv
+import io
 import logging
+from datetime import datetime
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
@@ -9,8 +12,9 @@ from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, Teleg
 from db import (
     get_stats, get_all_users, add_balance, deduct_balance, ban_user, get_user,
     get_recent_orders, search_orders, get_order_by_id, update_order, refund_order,
+    get_topup_revenue_stats, get_topup_transactions_for_export,
 )
-from keyboards import admin_menu, main_menu, admin_orders_list_kb, admin_order_kb
+from keyboards import admin_menu, main_menu, admin_orders_list_kb, admin_order_kb, admin_revenue_kb
 from helpers import escape_md
 from config import ADMIN_IDS, ORDER_COST
 
@@ -60,14 +64,117 @@ async def admin_stats(callback: CallbackQuery):
         await callback.answer("Access denied", show_alert=True)
         return
     stats = await get_stats()
+    rev = await get_topup_revenue_stats(top_spenders_limit=0)
     await callback.message.answer(
         f"📊 *Bot Statistics*\n\n"
         f"👥 Total Users: `{stats['total_users']}`\n"
         f"📦 Total Orders: `{stats['total_orders']}`\n"
-        f"✅ Successful Orders: `{stats['success_orders']}`\n",
+        f"✅ Successful Orders: `{stats['success_orders']}`\n\n"
+        f"💰 *Top-Up Revenue*\n"
+        f"⭐ Stars: `{rev['stars']['count']}` top-ups · "
+        f"`{rev['stars']['credits']}` cr · `{rev['stars']['stars']}` ⭐\n"
+        f"📱 Manual: `{rev['manual']['count']}` top-ups · "
+        f"`{rev['manual']['credits']}` cr\n"
+        f"📈 Total credits sold: `{rev['total_credits']}`\n\n"
+        f"_Tap 💰 Top-Up Revenue for the full breakdown & CSV export._",
         parse_mode="Markdown",
     )
     await callback.answer()
+
+
+def _format_revenue_text(rev: dict) -> str:
+    stars = rev["stars"]
+    manual = rev["manual"]
+    lines = [
+        "💰 *Top-Up Revenue*",
+        "",
+        f"⭐ Stars Top-Ups: `{stars['count']}` "
+        f"→ `{stars['credits']}` credits, `{stars['stars']}` ⭐",
+        f"📱 Manual Top-Ups: `{manual['count']}` → `{manual['credits']}` credits",
+        f"📊 Total: `{rev['total_count']}` top-ups, "
+        f"`{rev['total_credits']}` credits sold",
+        "",
+        "*By Stars Package:*",
+    ]
+    for p in rev["by_package"]:
+        lines.append(
+            f"• {escape_md(p['label'])} "
+            f"({p['credits_per_pkg']}cr / {p['stars_per_pkg']}⭐): "
+            f"`{p['count']}` sold → `{p['credits']}` cr, `{p['stars']}` ⭐"
+        )
+    if rev["top_spenders"]:
+        lines.append("")
+        lines.append("*Top Spenders:*")
+        for i, s in enumerate(rev["top_spenders"], 1):
+            name = s.get("full_name") or s.get("username") or "Unknown"
+            lines.append(
+                f"{i}. {escape_md(name)} (`{s['user_id']}`) — `{s['credits']}` cr"
+            )
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data == "admin_revenue")
+async def admin_revenue(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    rev = await get_topup_revenue_stats()
+    await callback.message.answer(
+        _format_revenue_text(rev),
+        parse_mode="Markdown",
+        reply_markup=admin_revenue_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_revenue_export")
+async def admin_revenue_export(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+    await callback.answer("Generating export…")
+    rows = await get_topup_transactions_for_export()
+    rev = await get_topup_revenue_stats()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "transaction_id", "user_id", "username", "full_name",
+        "credits", "description", "created_at",
+    ])
+    for r in rows:
+        writer.writerow([
+            r.get("id"),
+            r.get("user_id"),
+            r.get("username") or "",
+            r.get("full_name") or "",
+            r.get("amount"),
+            r.get("description") or "",
+            r.get("created_at") or "",
+        ])
+    writer.writerow([])
+    writer.writerow(["# Summary"])
+    writer.writerow(["stars_topups_count", rev["stars"]["count"]])
+    writer.writerow(["stars_credits_sold", rev["stars"]["credits"]])
+    writer.writerow(["stars_total_stars", rev["stars"]["stars"]])
+    writer.writerow(["manual_topups_count", rev["manual"]["count"]])
+    writer.writerow(["manual_credits_sold", rev["manual"]["credits"]])
+    writer.writerow(["total_credits_sold", rev["total_credits"]])
+    writer.writerow([])
+    writer.writerow(["# Per-Package Breakdown"])
+    writer.writerow(["package", "credits_per_pkg", "stars_per_pkg", "count", "credits", "stars"])
+    for p in rev["by_package"]:
+        writer.writerow([
+            p["label"], p["credits_per_pkg"], p["stars_per_pkg"],
+            p["count"], p["credits"], p["stars"],
+        ])
+
+    data = buf.getvalue().encode("utf-8")
+    fname = f"topup_revenue_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    await callback.message.answer_document(
+        BufferedInputFile(data, filename=fname),
+        caption=f"📥 Top-up revenue export ({len(rows)} transactions)",
+    )
 
 
 @router.callback_query(F.data == "admin_broadcast")

@@ -83,12 +83,22 @@ def admin_menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="💰 Top-Up Revenue", callback_data="admin_revenue")],
             [InlineKeyboardButton(text="📦 Orders", callback_data="admin_orders")],
             [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="➕ Add Balance", callback_data="admin_add_bal")],
             [InlineKeyboardButton(text="➖ Deduct Balance", callback_data="admin_deduct_bal")],
             [InlineKeyboardButton(text="🚫 Ban User", callback_data="admin_ban")],
             [InlineKeyboardButton(text="✅ Unban User", callback_data="admin_unban")],
+        ]
+    )
+
+
+def admin_revenue_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📥 Export CSV", callback_data="admin_revenue_export")],
+            [InlineKeyboardButton(text="🔙 Admin Menu", callback_data="admin_back")],
         ]
     )
 

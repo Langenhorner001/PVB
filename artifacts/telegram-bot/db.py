@@ -287,6 +287,137 @@ async def get_stats():
     return {"total_users": total_users, "total_orders": total_orders, "success_orders": success_orders}
 
 
+async def get_topup_revenue_stats(top_spenders_limit: int = 5):
+    """Aggregate revenue stats for top-ups.
+
+    Stars top-ups are recorded in `transactions` with type='topup' and a
+    description prefixed with 'Top-Up (Stars):'. Manual (Easypaisa/JazzCash)
+    top-ups use the same type with description prefixed 'Top-Up #'.
+    Stars-per-credits are derived from TOPUP_PACKAGES via description label.
+    """
+    from config import TOPUP_PACKAGES
+
+    label_to_pkg = {pkg["label"]: pkg for pkg in TOPUP_PACKAGES}
+    stars_desc_prefix = "Top-Up (Stars): "
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Stars top-ups grouped by description (one per package label)
+        async with db.execute(
+            """SELECT description, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS credits
+               FROM transactions
+               WHERE type = 'topup' AND description LIKE 'Top-Up (Stars):%'
+               GROUP BY description"""
+        ) as cursor:
+            stars_rows = [dict(r) for r in await cursor.fetchall()]
+
+        # Manual top-ups (single bucket)
+        async with db.execute(
+            """SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS credits
+               FROM transactions
+               WHERE type = 'topup' AND description LIKE 'Top-Up #%'"""
+        ) as cursor:
+            manual_row = dict(await cursor.fetchone())
+
+        # Top spenders (by total credits topped-up)
+        async with db.execute(
+            """SELECT t.user_id, COALESCE(SUM(t.amount), 0) AS credits,
+                      u.username, u.full_name
+               FROM transactions t
+               LEFT JOIN users u ON u.telegram_id = t.user_id
+               WHERE t.type = 'topup'
+               GROUP BY t.user_id
+               ORDER BY credits DESC
+               LIMIT ?""",
+            (top_spenders_limit,),
+        ) as cursor:
+            spender_rows = [dict(r) for r in await cursor.fetchall()]
+
+    # Build per-package breakdown for Stars packages
+    by_package = []
+    total_stars = 0
+    stars_credits = 0
+    stars_count = 0
+    seen_labels = set()
+    for row in stars_rows:
+        desc = row["description"] or ""
+        label = desc[len(stars_desc_prefix):].strip() if desc.startswith(stars_desc_prefix) else None
+        pkg = label_to_pkg.get(label) if label else None
+        cnt = int(row["cnt"] or 0)
+        credits = int(row["credits"] or 0)
+        stars_count += cnt
+        stars_credits += credits
+        if pkg:
+            stars = pkg["stars"] * cnt
+            total_stars += stars
+            by_package.append({
+                "label": pkg["label"],
+                "credits_per_pkg": pkg["credits"],
+                "stars_per_pkg": pkg["stars"],
+                "count": cnt,
+                "credits": credits,
+                "stars": stars,
+            })
+            seen_labels.add(pkg["label"])
+
+    # Include zero-row entries for known packages with no sales
+    for pkg in TOPUP_PACKAGES:
+        if pkg["label"] not in seen_labels:
+            by_package.append({
+                "label": pkg["label"],
+                "credits_per_pkg": pkg["credits"],
+                "stars_per_pkg": pkg["stars"],
+                "count": 0,
+                "credits": 0,
+                "stars": 0,
+            })
+
+    by_package.sort(key=lambda p: p["credits_per_pkg"])
+
+    manual_count = int(manual_row.get("cnt") or 0)
+    manual_credits = int(manual_row.get("credits") or 0)
+
+    return {
+        "stars": {
+            "count": stars_count,
+            "credits": stars_credits,
+            "stars": total_stars,
+        },
+        "manual": {
+            "count": manual_count,
+            "credits": manual_credits,
+        },
+        "total_credits": stars_credits + manual_credits,
+        "total_count": stars_count + manual_count,
+        "by_package": by_package,
+        "top_spenders": [
+            {
+                "user_id": r["user_id"],
+                "username": r["username"],
+                "full_name": r["full_name"],
+                "credits": int(r["credits"] or 0),
+            }
+            for r in spender_rows
+        ],
+    }
+
+
+async def get_topup_transactions_for_export():
+    """Return all top-up transactions joined with user info, for CSV export."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT t.id, t.user_id, u.username, u.full_name,
+                      t.amount, t.description, t.created_at
+               FROM transactions t
+               LEFT JOIN users u ON u.telegram_id = t.user_id
+               WHERE t.type = 'topup'
+               ORDER BY t.created_at ASC"""
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
 async def ban_user(telegram_id: int, banned: bool):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
