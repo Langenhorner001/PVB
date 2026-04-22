@@ -9,6 +9,7 @@ from db import get_user, deduct_balance, add_balance, create_order, update_order
 from keyboards import main_menu, cancel_kb, confirm_order_kb
 from google_auth import google_login_and_get_link
 import re as _re
+from helpers import escape_md
 from config import ORDER_COST, ADMIN_IDS
 
 router = Router()
@@ -67,7 +68,10 @@ async def cancel_order(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_gmail)
 async def got_gmail(message: Message, state: FSMContext):
-    email = message.text.strip()
+    email = (message.text or "").strip()
+    if not email:
+        await message.answer("⚠️ Please enter a Gmail address.")
+        return
     if "@" not in email or "." not in email:
         await message.answer("⚠️ Invalid email. Please enter a valid Gmail address:")
         return
@@ -83,7 +87,10 @@ async def got_gmail(message: Message, state: FSMContext):
 
 @router.message(OrderState.waiting_password)
 async def got_password(message: Message, state: FSMContext):
-    password = message.text.strip()
+    password = (message.text or "").strip()
+    if not password:
+        await message.answer("⚠️ Please enter your password.")
+        return
     if len(password) < 6:
         await message.answer("⚠️ Password too short. Please enter your correct password:")
         return
@@ -116,7 +123,10 @@ def _parse_2fa_input(raw: str):
 
 @router.message(OrderState.waiting_2fa)
 async def got_2fa(message: Message, state: FSMContext):
-    raw = message.text.strip()
+    raw = (message.text or "").strip()
+    if not raw:
+        await message.answer("⚠️ Please enter your 2FA secret or backup code.")
+        return
     totp_secret, backup_code = _parse_2fa_input(raw)
 
     if totp_secret is None and backup_code is None:
@@ -138,7 +148,7 @@ async def got_2fa(message: Message, state: FSMContext):
 
     await message.answer(
         f"📋 *Order Summary*\n\n"
-        f"📧 Gmail: `{data['gmail']}`\n"
+        f"📧 Gmail: `{escape_md(data['gmail'])}`\n"
         f"🔑 Password: `{'*' * len(data['password'])}`\n"
         f"{cred_line}\n\n"
         f"💵 Cost: `{ORDER_COST}` credits\n\n"
@@ -197,7 +207,6 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
             await callback.answer()
             return
 
-    loop = asyncio.get_event_loop()
     login_fn = functools.partial(
         google_login_and_get_link,
         data["gmail"],
@@ -205,7 +214,7 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         data.get("totp_secret"),
         backup_code=data.get("backup_code"),
     )
-    result = await loop.run_in_executor(None, login_fn)
+    result = await asyncio.to_thread(login_fn)
 
     if result["success"]:
         link = result["link"]
@@ -214,7 +223,7 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         success_msg = (
             f"✅ *Done!*\n"
             f"Here is your Google Ai Pro 12-Month Trial link:\n"
-            f"{link}\n\n"
+            f"`{escape_md(link)}`\n\n"
             f"⚠️ *Be Careful!* Copy this link and paste this into a browser where "
             f"*only this gmail account is logged in.* Sign out all other accounts "
             f"other than this one or you'll face this *\"Can't redeem offer. The offer "
@@ -222,18 +231,15 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         )
         await callback.message.answer(success_msg, parse_mode="Markdown", reply_markup=main_menu())
 
-        user_obj = await get_user(user_id)
-        updated_balance = user_obj["balance"] if user_obj else 0
-
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
                     f"📦 *Order Update from Admin:*\n\n"
-                    f"User: {callback.from_user.full_name} (`{user_id}`)\n"
-                    f"Gmail: `{data['gmail']}`\n"
+                    f"User: {escape_md(callback.from_user.full_name)} (`{user_id}`)\n"
+                    f"Gmail: `{escape_md(data['gmail'])}`\n"
                     f"Order #{order_id} — ✅ Success\n"
-                    f"tap {ORDER_COST}",
+                    f"Charged: `{ORDER_COST}` credits",
                     parse_mode="Markdown",
                 )
             except Exception:
@@ -251,7 +257,7 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         )
         error_msg = (
             f"❌ *Order Failed*\n\n"
-            f"Reason: {result['error']}\n\n"
+            f"Reason: `{escape_md(result['error'])}`\n\n"
             f"{refund_line}"
             f"Please check your credentials and try again."
         )
@@ -262,10 +268,10 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
                 await bot.send_message(
                     admin_id,
                     f"📦 *Order Failed:*\n\n"
-                    f"User: {callback.from_user.full_name} (`{user_id}`)\n"
-                    f"Gmail: `{data['gmail']}`\n"
+                    f"User: {escape_md(callback.from_user.full_name)} (`{user_id}`)\n"
+                    f"Gmail: `{escape_md(data['gmail'])}`\n"
                     f"Order #{order_id} — ❌ Failed\n"
-                    f"Reason: {result['error']}",
+                    f"Reason: `{escape_md(result['error'])}`",
                     parse_mode="Markdown",
                 )
             except Exception:

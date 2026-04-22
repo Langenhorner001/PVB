@@ -156,21 +156,22 @@ async def create_user(telegram_id: int, username: str, full_name: str, referred_
                     referred_by = ref_row["telegram_id"]
 
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+        cursor = await db.execute(
             """INSERT OR IGNORE INTO users 
                (telegram_id, username, full_name, balance, referral_code, referred_by, created_at, is_banned)
                VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
             (telegram_id, username, full_name, INITIAL_BALANCE, ref_code, referred_by, datetime.now().isoformat()),
         )
         await db.commit()
-    return ref_code, referred_by
+        inserted = cursor.rowcount == 1
+    return ref_code, referred_by, inserted
 
 
 async def get_or_create_user(telegram_id: int, username: str, full_name: str, ref_code: str = None):
     user = await get_user(telegram_id)
     if not user:
-        referral_code, referred_by = await create_user(telegram_id, username, full_name, ref_code)
-        if referred_by:
+        referral_code, referred_by, inserted = await create_user(telegram_id, username, full_name, ref_code)
+        if inserted and referred_by:
             await add_balance(referred_by, REFERRAL_REWARD, "referral", f"Referral bonus from {full_name}")
         user = await get_user(telegram_id)
     return user
@@ -185,7 +186,7 @@ async def record_payment(charge_id: str, user_id: int, amount: int) -> bool:
     """Idempotency guard for Telegram successful_payment events.
     Returns True if this charge_id was newly recorded, False if already processed."""
     if not charge_id:
-        return True
+        return False
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
             "INSERT OR IGNORE INTO processed_payments (charge_id, user_id, amount, created_at) VALUES (?, ?, ?, ?)",

@@ -1,8 +1,38 @@
 import os
+from pathlib import Path
+
+
+def _load_env_file() -> None:
+    env_path = Path(__file__).with_name(".env")
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file()
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+ADMIN_ID_RAW = os.environ.get("ADMIN_ID", "")
 ADMIN_IDS_RAW = os.environ.get("ADMIN_IDS", "")
-ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_RAW.split(",") if x.strip().isdigit()]
+
+ADMIN_IDS = []
+if ADMIN_ID_RAW.strip().isdigit():
+    ADMIN_IDS.append(int(ADMIN_ID_RAW.strip()))
+ADMIN_IDS.extend(
+    int(x.strip())
+    for x in ADMIN_IDS_RAW.split(",")
+    if x.strip().isdigit()
+    and int(x.strip()) not in ADMIN_IDS
+)
 
 DB_PATH = "bot_data.db"
 

@@ -256,6 +256,14 @@ async def admin_add_bal_amount(message: Message, state: FSMContext):
         return
     data = await state.get_data()
     await state.clear()
+    target_user = await get_user(data["target_id"])
+    if not target_user:
+        await message.answer(
+            f"❌ User `{data['target_id']}` not found.",
+            parse_mode="Markdown",
+            reply_markup=main_menu(),
+        )
+        return
     await add_balance(data["target_id"], amount, "admin_credit", f"Admin added {amount} credits")
     user = await get_user(data["target_id"])
     new_bal = user["balance"] if user else "N/A"
@@ -495,7 +503,7 @@ async def admin_order_success_link(message: Message, state: FSMContext, bot: Bot
                 order["user_id"],
                 f"✅ *Your order has been resolved!*\n\n"
                 f"Order #{order_id} has been manually marked as successful by an admin.\n\n"
-                f"🔗 Your Google AI Pro link:\n{link}\n\n"
+                f"🔗 Your Google AI Pro link:\n`{escape_md(link)}`\n\n"
                 f"⚠️ Use this link in a browser where *only this Gmail account* is logged in.",
                 parse_mode="Markdown",
             )

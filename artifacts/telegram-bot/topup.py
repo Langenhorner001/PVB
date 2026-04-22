@@ -199,7 +199,7 @@ async def successful_payment(message: Message, bot: Bot):
             await bot.send_message(
                 admin_id,
                 f"💳 *Top-Up Received (Stars)*\n\n"
-                f"User: {message.from_user.full_name} (`{user_id}`)\n"
+                f"User: {escape_md(message.from_user.full_name)} (`{user_id}`)\n"
                 f"Package: {pkg['label']}\n"
                 f"Credits Added: `{credits}`\n"
                 f"Stars Paid: `{expected_stars}` ⭐\n"
@@ -356,8 +356,8 @@ async def msg_trx_ref(message: Message, state: FSMContext, bot: Bot):
 
     admin_text = (
         f"💳 *New Top-Up Request* `#{request_id}`\n\n"
-        f"User: {message.from_user.full_name} (`{user_id}`)\n"
-        f"Username: @{message.from_user.username or '—'}\n"
+        f"User: {escape_md(message.from_user.full_name)} (`{user_id}`)\n"
+        f"Username: @{escape_md(message.from_user.username or '—')}\n"
         f"Amount: *{amount} credits*\n"
         f"Method: *{METHOD_LABELS[method]}*\n"
         f"TRX ID: `{trx}`"
@@ -423,10 +423,14 @@ async def cb_topup_approve(callback: CallbackQuery, bot: Bot):
         pass
 
     safe_admin = escape_md(callback.from_user.full_name)
-    original = callback.message.text or ""
     await callback.message.edit_text(
-        f"{escape_md(original)}\n\n✅ *APPROVED* by {safe_admin}",
+        f"✅ *Top-Up Approved*\n\n"
+        f"Request: `#{request_id}`\n"
+        f"User: `{req['user_id']}`\n"
+        f"Amount: *{req['amount']} credits*\n"
+        f"By: {safe_admin}",
         parse_mode="Markdown",
+        reply_markup=None,
     )
     await callback.answer("Approved & balance added.")
 
@@ -474,10 +478,14 @@ async def cb_topup_reject(callback: CallbackQuery, bot: Bot):
         pass
 
     safe_admin = escape_md(callback.from_user.full_name)
-    original = callback.message.text or ""
     await callback.message.edit_text(
-        f"{escape_md(original)}\n\n❌ *REJECTED* by {safe_admin}",
+        f"❌ *Top-Up Rejected*\n\n"
+        f"Request: `#{request_id}`\n"
+        f"User: `{req['user_id']}`\n"
+        f"Amount: *{req['amount']} credits*\n"
+        f"By: {safe_admin}",
         parse_mode="Markdown",
+        reply_markup=None,
     )
     await callback.answer("Rejected.")
 

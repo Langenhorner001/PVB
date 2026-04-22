@@ -29,3 +29,6 @@ dist/
 
 # Replit
 .cache/
+
+# Environment files
+**/.env

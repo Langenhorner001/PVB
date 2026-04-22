@@ -64,11 +64,11 @@ async def show_history(message: Message):
             )
             date = order["created_at"][:10] if order["created_at"] else "N/A"
             text += f"{status_emoji} *Order #{order['id']}*\n"
-            text += f"   📧 `{order['gmail']}`\n"
+            text += f"   📧 `{_md_escape(order['gmail'])}`\n"
             text += f"   Status: {order['status'].capitalize()}\n"
             text += f"   Date: {date}\n"
             if order.get("generated_link"):
-                text += f"   🔗 [Link]({order['generated_link']})\n"
+                text += f"   🔗 `{_md_escape(order['generated_link'])}`\n"
             text += "\n"
 
     if transactions:

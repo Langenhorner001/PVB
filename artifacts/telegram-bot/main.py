@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 async def main():
     if not BOT_TOKEN:
-        logger.error("BOT_TOKEN is not set! Please add it to Replit Secrets.")
+        logger.error("BOT_TOKEN is not set! Please add it to your .env file or secrets store.")
         return
 
     await init_db()
