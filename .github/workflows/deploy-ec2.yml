@@ -1,0 +1,73 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ec2-deploy-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_PORT: ${{ secrets.EC2_PORT || '22' }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_PASSWORD: ${{ secrets.EC2_PASSWORD }}
+        run: |
+          test -n "$EC2_HOST" || (echo "Missing EC2_HOST secret" >&2; exit 1)
+          mkdir -p ~/.ssh
+          if [ -n "$EC2_SSH_KEY" ]; then
+            printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2_key
+            chmod 600 ~/.ssh/ec2_key
+          elif [ -n "$EC2_PASSWORD" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq sshpass
+          else
+            echo "Missing SSH auth: set EC2_SSH_KEY or EC2_PASSWORD secret" >&2
+            exit 1
+          fi
+          ssh-keyscan -p "$EC2_PORT" -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_PORT: ${{ secrets.EC2_PORT || '22' }}
+          EC2_USER: ${{ secrets.EC2_USER || 'ubuntu' }}
+          EC2_PASSWORD: ${{ secrets.EC2_PASSWORD }}
+          EC2_SUDO_PASSWORD: ${{ secrets.EC2_SUDO_PASSWORD }}
+          EC2_REPO_PATH: ${{ secrets.EC2_REPO_PATH || '/home/ubuntu/PVB' }}
+          EC2_SERVICE: ${{ secrets.EC2_SERVICE || 'pixel-bot' }}
+          BOT_DIR: ${{ secrets.BOT_DIR || '/home/ubuntu/pixel-bot' }}
+        run: |
+          SSH_CMD=(ssh -p "$EC2_PORT" "$EC2_USER@$EC2_HOST")
+          if [ -f ~/.ssh/ec2_key ]; then
+            SSH_CMD=(ssh -i ~/.ssh/ec2_key -p "$EC2_PORT" "$EC2_USER@$EC2_HOST")
+          elif [ -n "$EC2_PASSWORD" ]; then
+            export SSHPASS="$EC2_PASSWORD"
+            SSH_CMD=(sshpass -e ssh -p "$EC2_PORT" "$EC2_USER@$EC2_HOST")
+          fi
+
+          q() { printf '%q' "$1"; }
+          REMOTE_ENV="EC2_REPO_PATH=$(q "$EC2_REPO_PATH") EC2_SERVICE=$(q "$EC2_SERVICE") BOT_DIR=$(q "$BOT_DIR") EC2_PASSWORD=$(q "$EC2_PASSWORD") EC2_SUDO_PASSWORD=$(q "${EC2_SUDO_PASSWORD:-}")"
+
+          "${SSH_CMD[@]}" \
+            "$REMOTE_ENV bash -s" <<'EOF'
+          set -Eeuo pipefail
+
+          cd "$EC2_REPO_PATH"
+          git fetch origin main
+          git reset --hard origin/main
+
+          chmod +x scripts/ec2-deploy.sh setup.sh
+          REPO_DIR="$EC2_REPO_PATH" EC2_SERVICE="$EC2_SERVICE" BOT_DIR="$BOT_DIR" \
+            bash scripts/ec2-deploy.sh
+          EOF

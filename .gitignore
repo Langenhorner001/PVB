@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+.venv/
+.pythonlibs/
+
+# Bot runtime database (keep local data out of git)
+bot_data.db
+**/bot_data.db
+**/bot_data.db-journal
+**/bot_data.db-wal
+**/bot_data.db-shm
+
+# Replit
+.cache/
+
+# Local Codex/app runtime
+.config/
+.local/
+
+# Environment files
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Private deployment keys
+*.pem
+*.ppk
+id_rsa
+id_ed25519

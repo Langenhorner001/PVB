@@ -1,0 +1,7 @@
+# Extra dependencies for deploy.py only.
+# NOT needed by the running bot. Install on the box where you run
+#   `python deploy.py ...`
+# (typically your laptop or the Replit shell), e.g.:
+#   pip install -r requirements-deploy.txt
+paramiko>=3.4.0
+cryptography>=42.0
